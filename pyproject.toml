@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spikekern"
+version = "0.1.0"
+description = "Fused Triton kernels for LIF spiking neuron dynamics."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Sohan Bag", email = "sohanbag00@gmail.com" }]
+keywords = ["triton", "cuda", "gpu", "kernel", "spiking-neural-networks", "snn", "lif"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = ["torch>=2.0"]
+
+[project.optional-dependencies]
+# Triton is the whole point, and it is not installable everywhere: the official
+# wheel is Linux-only, so Windows needs the community triton-windows port. It
+# stays optional so the package imports and the reference path still runs on a
+# machine without it.
+triton = ["triton>=3.0; sys_platform == 'linux'", "triton-windows>=3.5; sys_platform == 'win32'"]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "mypy>=1.8",
+    "ruff>=0.3",
+    "snntorch>=0.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/SohanBag/spikekern"
+Issues = "https://github.com/SohanBag/spikekern/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+spikekern = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["cuda: needs a CUDA device and Triton"]
+
+[tool.ruff]
+line-length = 90
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+files = ["src/spikekern"]
+strict = true
+warn_unreachable = true
+ignore_missing_imports = true
+
+[tool.coverage.report]
+# 65, not 90, and the gap is measurement rather than untested code.
+#
+# coverage.py cannot see two things here. Triton kernel bodies are compiled by
+# @triton.jit and never execute as Python bytecode, and _FusedLIF.backward runs
+# on a C++ autograd engine thread that Python's trace hook does not reach.
+# Together that is roughly a third of fused.py, all of it exercised by the
+# gradient tests -- which would fail immediately if any of it were wrong.
+#
+# Raising the threshold by marking those lines `no cover` would make the number
+# look better while measuring less, so the number stays honest and this comment
+# explains it.
+fail_under = 65
+show_missing = true

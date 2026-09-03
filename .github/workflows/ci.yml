@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          # CPU wheels: the runners have no GPU. Every kernel test is marked
+          # `cuda` and skips itself, leaving the reference implementation, the
+          # fallback path and the argument validation -- which is what CI can
+          # actually check here.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]"
+      - name: Test
+        env:
+          PYTHONIOENCODING: utf-8
+        run: pytest -q --cov=spikekern --cov-report=term-missing
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]"
+      - run: ruff check .
+      - run: mypy
+
+  fallback:
+    name: the CPU fallback must be identical, not merely present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]"
+
+      - name: fused_lif on CPU equals the reference exactly
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python - <<'PY'
+          import torch
+          from spikekern import fused_lif, lif_sequence, TRITON_AVAILABLE
+
+          torch.manual_seed(0)
+          x = torch.randn(32, 8, 128) * 0.6
+          for reset in ("zero", "subtract"):
+              fs, fu = fused_lif(x, beta=0.9, reset=reset)
+              rs, ru = lif_sequence(x, beta=0.9, reset=reset)
+              assert torch.equal(fs, rs), f"{reset}: spikes differ on CPU"
+              assert torch.equal(fu, ru), f"{reset}: membrane differs on CPU"
+              rate = fs.mean().item()
+              assert 0.01 < rate < 0.9, f"degenerate firing rate {rate}"
+              print(f"ok {reset}: identical, firing rate {rate:.3f}")
+          print(f"triton available on this runner: {TRITON_AVAILABLE}")
+          PY
+
+      - name: The two reset conventions must not agree
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python - <<'PY'
+          import torch
+          from spikekern import lif_sequence
+
+          torch.manual_seed(0)
+          x = torch.randn(32, 8, 128) * 0.6
+          z, _ = lif_sequence(x, beta=0.9, reset="zero")
+          s, _ = lif_sequence(x, beta=0.9, reset="subtract")
+          assert not torch.equal(z, s), "reset parameter is doing nothing"
+          disagreement = (z != s).float().mean().item()
+          print(f"ok: conventions differ on {disagreement:.1%} of spikes")
+          PY
