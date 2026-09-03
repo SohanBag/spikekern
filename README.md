@@ -146,12 +146,15 @@ mypy          # strict
 Kernel tests are marked `cuda` and skip without a GPU and Triton; the
 reference, the fallback and the validation still run, which is what CI checks.
 
-**Coverage reads 68%, and the gap is measurement rather than untested code.**
+**Coverage reads 68% on a GPU machine and 52% without one**, and the gap is
+measurement rather than untested code.
 `coverage.py` cannot see inside `@triton.jit` kernel bodies, which are compiled
 rather than executed as Python, and cannot trace `_FusedLIF.backward`, which
 runs on a C++ autograd engine thread. That is about a third of `fused.py`, all
-of it exercised by the gradient tests. Marking those lines `no cover` would
-raise the number while measuring less, so it stays as it is.
+of it exercised by the gradient tests. Without a GPU the `cuda`-marked tests
+skip as well, so CI enforces 50 and the GPU figure is recorded here. Marking
+those lines `no cover` would raise the number while measuring less, so it stays
+as it is.
 
 ### Installing Triton
 
